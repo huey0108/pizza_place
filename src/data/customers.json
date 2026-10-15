@@ -1,0 +1,7 @@
+[
+  { "id": "regular", "name": "Rosie Regular", "patienceMultiplier": 1.0, "tipMultiplier": 1.0, "unlockDay": 1, "weight": 10 },
+  { "id": "kid", "name": "Kiki Kid", "patienceMultiplier": 1.3, "tipMultiplier": 1.0, "unlockDay": 1, "weight": 6 },
+  { "id": "hurry", "name": "Harry Hurry", "patienceMultiplier": 0.6, "tipMultiplier": 2.0, "unlockDay": 3, "weight": 5 },
+  { "id": "picky", "name": "Petra Picky", "patienceMultiplier": 0.9, "tipMultiplier": 1.5, "unlockDay": 4, "weight": 4, "requiresExtraTopping": true },
+  { "id": "vip", "name": "Victor VIP", "patienceMultiplier": 1.0, "tipMultiplier": 3.0, "unlockDay": 5, "weight": 1 }
+]

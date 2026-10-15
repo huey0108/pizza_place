@@ -1,0 +1,9 @@
+[
+  { "id": "sauce", "name": "Sauce", "color": "#d94a3f", "cost": 1 },
+  { "id": "cheese", "name": "Cheese", "color": "#f4d35e", "cost": 1 },
+  { "id": "pepperoni", "name": "Pepperoni", "color": "#b84a3a", "cost": 1 },
+  { "id": "mushroom", "name": "Mushroom", "color": "#8b6f47", "cost": 1 },
+  { "id": "pepper", "name": "Pepper", "color": "#4caf50", "cost": 1 },
+  { "id": "olive", "name": "Olive", "color": "#2d2d2d", "cost": 1 },
+  { "id": "pineapple", "name": "Pineapple", "color": "#f5c842", "cost": 1 }
+]

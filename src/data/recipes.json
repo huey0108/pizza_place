@@ -1,0 +1,37 @@
+[
+  {
+    "id": "margherita",
+    "name": "Margherita",
+    "price": 6,
+    "requires": ["sauce", "cheese"],
+    "unlockDay": 1
+  },
+  {
+    "id": "pepperoni",
+    "name": "Pepperoni",
+    "price": 8,
+    "requires": ["sauce", "cheese", "pepperoni"],
+    "unlockDay": 3
+  },
+  {
+    "id": "veggie",
+    "name": "Veggie",
+    "price": 8,
+    "requires": ["sauce", "cheese", "mushroom", "pepper"],
+    "unlockDay": 3
+  },
+  {
+    "id": "mediterranean",
+    "name": "Mediterranean",
+    "price": 10,
+    "requires": ["sauce", "cheese", "olive", "pepper"],
+    "unlockDay": 6
+  },
+  {
+    "id": "tropical",
+    "name": "Tropical",
+    "price": 10,
+    "requires": ["sauce", "cheese", "pepperoni", "pineapple"],
+    "unlockDay": 7
+  }
+]

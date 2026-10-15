@@ -1,0 +1,6 @@
+[
+  { "id": "second-oven", "name": "Second Oven", "cost": 60, "unlockDay": 3, "effect": "ovens+1" },
+  { "id": "bigger-counter", "name": "Bigger Counter", "cost": 40, "unlockDay": 4, "effect": "counter+1" },
+  { "id": "deco-plants", "name": "Potted Plants", "cost": 10, "unlockDay": 2, "effect": "cosmetic" },
+  { "id": "deco-neon", "name": "Neon Sign", "cost": 30, "unlockDay": 5, "effect": "cosmetic" }
+]
