@@ -35,10 +35,11 @@ export class KitchenScene extends Phaser.Scene {
     this.pizzasServed = 0;
     this.dayLen = economyData.dayLengthSeconds;
     this.elapsed = 0;
+    this.stockLabels = {}; // populated by layoutIngredientTrays
 
-    this.layoutUI(width, height);
     this.layoutStations(width, height);
     this.layoutIngredientTrays(width, height);
+    this.layoutUI(width, height);
 
     this.time.addEvent({ delay: 100, loop: true, callback: () => this.tick(0.1) });
   }
