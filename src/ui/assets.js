@@ -58,18 +58,26 @@ export function svgToUrl(svgString) {
   return URL.createObjectURL(blob);
 }
 
-// Try fetch from /assets/art/, fall back to inline FALLBACK_SVGS.
+// Try fetch from /assets/art/, preferring PNG over SVG. Falls back to inline FALLBACK_SVGS.
 export async function loadArtAsBlobUrls(baseUrl = './assets/art/') {
   const out = {};
   await Promise.all(ART_KEYS.map(async (key) => {
+    // Try PNG first (preferred — higher-fidelity 3D-render sprites)
+    try {
+      const res = await fetch(`${baseUrl}${key}.png`);
+      const ct = res.headers.get('content-type') ?? '';
+      if (res.ok && ct.startsWith('image/')) {
+        const blob = await res.blob();
+        if (blob.size > 0) { out[key] = URL.createObjectURL(blob); return; }
+      }
+    } catch (e) { /* fall through */ }
+    // Then SVG
     try {
       const res = await fetch(`${baseUrl}${key}.svg`);
-      if (res.ok) {
+      const ct = res.headers.get('content-type') ?? '';
+      if (res.ok && (ct.includes('svg') || ct.startsWith('image/'))) {
         const text = await res.text();
-        if (text.includes('<svg')) {
-          out[key] = svgToUrl(text);
-          return;
-        }
+        if (text.includes('<svg')) { out[key] = svgToUrl(text); return; }
       }
     } catch (e) { /* fall through */ }
     out[key] = svgToUrl(FALLBACK_SVGS[key] ?? colorCircle('#888'));

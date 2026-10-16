@@ -60,25 +60,26 @@ export class KitchenScene extends Phaser.Scene {
   }
 
   layoutStations(width, height) {
-    // Counter area (where pizza is built)
-    this.counterZone = this.add.rectangle(width / 2, 440, 220, 220, 0xd9b382).setStrokeStyle(5, 0x2a1a0e);
-    this.add.text(width / 2, 540, 'counter', { fontFamily: 'system-ui', fontSize: '18px', color: '#2a1a0e' }).setOrigin(0.5);
-    // "New pizza" button (places dough)
-    const newBtn = this.add.rectangle(width / 2 - 170, 440, 110, 90, 0xffb347).setStrokeStyle(4, 0x2a1a0e).setInteractive({ useHandCursor: true });
-    this.add.text(width / 2 - 170, 440, '+ dough', { fontFamily: 'Georgia', fontSize: '22px', color: '#2a1a0e' }).setOrigin(0.5);
+    // Counter position matches the wooden counter baked into the backdrop (~x=490, y=380).
+    const counterX = 490, counterY = 380;
+    // Transparent interaction zone — no visible beige rect anymore
+    this.counterZone = this.add.rectangle(counterX, counterY, 240, 180, 0x000000, 0.0).setStrokeStyle(0);
+    this.counterX = counterX; this.counterY = counterY;
+    // +dough and bin buttons flanking the counter
+    const newBtn = this.add.rectangle(counterX - 190, counterY + 10, 110, 80, 0xffb347, 0.95).setStrokeStyle(4, 0x2a1a0e).setInteractive({ useHandCursor: true });
+    this.add.text(counterX - 190, counterY + 10, '+ dough', { fontFamily: 'Georgia', fontSize: '20px', color: '#2a1a0e', fontStyle: 'bold' }).setOrigin(0.5);
     newBtn.on('pointerdown', () => this.startPizza());
-    // Bin button
-    const bin = this.add.rectangle(width / 2 + 170, 440, 110, 90, 0x888).setStrokeStyle(4, 0x2a1a0e).setInteractive({ useHandCursor: true });
-    this.add.text(width / 2 + 170, 440, '🗑 bin', { fontFamily: 'Georgia', fontSize: '22px', color: '#fff' }).setOrigin(0.5);
+    const bin = this.add.rectangle(counterX + 190, counterY + 10, 110, 80, 0x555, 0.95).setStrokeStyle(4, 0x2a1a0e).setInteractive({ useHandCursor: true });
+    this.add.text(counterX + 190, counterY + 10, '🗑 bin', { fontFamily: 'Georgia', fontSize: '20px', color: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
     bin.on('pointerdown', () => this.binPizza());
 
     // Ovens: overlay invisible interaction slots on top of the baked-in oven in the backdrop.
     // The backdrop art has one oven on the left (~x=200, y=200). Second-oven upgrade adds another.
-    const ovenPositions = [{ x: 200, y: 200 }, { x: 820, y: 200 }];
+    const ovenPositions = [{ x: 240, y: 180 }, { x: 820, y: 180 }];
     this.ovenSlots = this.ovens.map((_, i) => {
       const pos = ovenPositions[i] || { x: 200 + i * 220, y: 200 };
       // Only draw a visible oven sprite for extra ovens beyond what's in the backdrop
-      if (i >= 1) this.add.image(pos.x, pos.y, 'oven').setDisplaySize(200, 150);
+      if (i >= 1) { const o = this.add.image(pos.x, pos.y, 'oven'); o.setScale(200 / Math.max(o.width, o.height)); }
       const slot = { x: pos.x, y: pos.y, index: i, pizzaSprite: null, bakeTime: 0, bakeStage: 'raw' };
       // Clickable zone over the oven mouth
       const zone = this.add.rectangle(pos.x, pos.y, 200, 150, 0x000, 0.01).setInteractive({ useHandCursor: true });
@@ -87,7 +88,7 @@ export class KitchenScene extends Phaser.Scene {
     });
 
     // Customer waiting area (right side)
-    this.customerSlots = [0, 1, 2].map((i) => ({ x: 900, y: 150 + i * 180, occupied: null }));
+    this.customerSlots = [0, 1, 2].map((i) => ({ x: 870, y: 220 + i * 170, occupied: null }));
   }
 
   layoutIngredientTrays(width, height) {
@@ -129,7 +130,7 @@ export class KitchenScene extends Phaser.Scene {
     if (this.counterPizza) { sfx.hmph(); return; }
     if (!hasStock(this.state, 'dough', 1)) { sfx.hmph(); this.flash('out of dough!'); return; }
     this.state = { ...this.state, fridge: { ...this.state.fridge, dough: this.state.fridge.dough - 1 } };
-    const sprite = this.add.image(this.scale.width / 2, 440, 'pizza-base-raw').setDisplaySize(180, 180);
+    const sprite = this.add.image(this.counterX, this.counterY, 'pizza-base-raw'); sprite.setScale(170 / Math.max(sprite.width, sprite.height));
     this.counterPizza = { sprite, toppings: [], toppingSprites: [], bakeStage: 'raw' };
     sfx.pop();
     this.updateHud();
@@ -143,8 +144,8 @@ export class KitchenScene extends Phaser.Scene {
     // Scatter the topping on the pizza
     const angle = Math.random() * Math.PI * 2;
     const r = Math.random() * 50;
-    const tx = this.scale.width / 2 + Math.cos(angle) * r;
-    const ty = 440 + Math.sin(angle) * r;
+    const tx = this.counterX + Math.cos(angle) * r;
+    const ty = this.counterY + Math.sin(angle) * r;
     const s = this.add.image(tx, ty, `topping-${id}`).setDisplaySize(50, 50);
     this.counterPizza.toppingSprites.push(s);
     sfx.tap();
@@ -182,10 +183,10 @@ export class KitchenScene extends Phaser.Scene {
     const p = slot.pizzaData;
     p.bakeStage = slot.bakeStage;
     // Move back to counter
-    this.tweens.add({ targets: p.sprite, x: this.scale.width / 2, y: 440, duration: 300 });
+    this.tweens.add({ targets: p.sprite, x: this.counterX, y: this.counterY, duration: 300 });
     for (const t of p.toppingSprites) {
       const dx = t.x - slot.x; const dy = t.y - slot.y;
-      this.tweens.add({ targets: t, x: this.scale.width / 2 + dx, y: 440 + dy, duration: 300 });
+      this.tweens.add({ targets: t, x: this.counterX + dx, y: this.counterY + dy, duration: 300 });
     }
     this.counterPizza = p;
     slot.pizzaSprite = null; slot.pizzaData = null; slot.bakeTime = 0; slot.bakeStage = 'raw';
@@ -245,6 +246,7 @@ export class KitchenScene extends Phaser.Scene {
   // Main tick (10 fps). dt in seconds.
   tick(dt) {
     this.elapsed += dt;
+    // (fit helper is inlined where needed)
     // Spawn customers whose arrivalAt <= elapsed
     while (this.queue.length > 0 && this.queue[0].arrivalAt <= this.elapsed) {
       const next = this.queue.shift();
@@ -295,10 +297,10 @@ export class KitchenScene extends Phaser.Scene {
     const slot = this.customerSlots.find((s) => !s.occupied);
     if (!slot) { this.queue.unshift({ ...order, arrivalAt: this.elapsed + 2 }); return; }
     slot.occupied = true;
-    const sprite = this.add.image(slot.x, slot.y, `customer-${order.customerId}`).setDisplaySize(140, 140);
-    const face = this.add.image(slot.x - 50, slot.y - 70, 'face-happy').setDisplaySize(50, 50);
+    const sprite = this.add.image(slot.x, slot.y, `customer-${order.customerId}`); sprite.setScale(190 / Math.max(sprite.width, sprite.height));
+    const face = this.add.image(slot.x + 60, slot.y - 80, 'face-happy').setDisplaySize(44, 44);
     // Order bubble: dough + toppings icons
-    const bubble = this.add.container(slot.x - 160, slot.y);
+    const bubble = this.add.container(slot.x - 130, slot.y - 50);
     const bg = this.add.rectangle(0, 0, 140, 100, 0xffffff).setStrokeStyle(3, 0x1a1a1a);
     bubble.add(bg);
     const icons = order.requiredToppings;
@@ -327,7 +329,7 @@ export class KitchenScene extends Phaser.Scene {
   }
 
   flash(msg) {
-    const t = this.add.text(this.scale.width / 2, 100, msg, { fontFamily: 'Georgia', fontSize: '28px', color: '#d94a3f', fontStyle: 'bold', backgroundColor: '#fff', padding: { x: 10, y: 6 } }).setOrigin(0.5);
+    const t = this.add.text(this.counterX, this.counterY - 150, msg, { fontFamily: 'Georgia', fontSize: '28px', color: '#d94a3f', fontStyle: 'bold', backgroundColor: '#fff', padding: { x: 10, y: 6 } }).setOrigin(0.5);
     this.tweens.add({ targets: t, alpha: 0, duration: 1200, onComplete: () => t.destroy() });
   }
 
