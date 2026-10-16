@@ -3,14 +3,16 @@ import { sfx } from '../ui/sfx.js';
 import { createRng } from '../rules/rng.js';
 import { buildCustomerQueue } from '../rules/customers.js';
 import { scorePizza, BAKE, WAIT, payment } from '../rules/scoring.js';
-import { hasStock, consumePizzaIngredients, ovenCount } from '../rules/economy.js';
+import { hasStock, ovenCount } from '../rules/economy.js';
 import economyData from '../data/economy.json';
 import recipesData from '../data/recipes.json';
 import customersData from '../data/customers.json';
-import toppingsData from '../data/toppings.json';
 
 // Bake stages by seconds in oven
 const BAKE_TIMES = { raw: 0, slightlyUnder: 6, golden: 10, slightlyOver: 14, burnt: 18 };
+
+// How many pizzas can sit on the counter at once (allows prepping a 2nd while first bakes)
+const COUNTER_CAPACITY = 2;
 
 export class KitchenScene extends Phaser.Scene {
   constructor() { super('Kitchen'); }
@@ -20,11 +22,10 @@ export class KitchenScene extends Phaser.Scene {
     const { width, height } = this.scale;
     this.cameras.main.setBackgroundColor('#1a0f08');
 
-    // Full-bleed concept-art backdrop (kitchen interior)
+    // Full-bleed concept-art backdrop
     const bg = this.add.image(width / 2, height / 2, 'bg-kitchen');
     const sx = width / bg.width, sy = height / bg.height;
     bg.setScale(Math.max(sx, sy));
-    // Light overlay so UI elements pop
     this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.18);
 
     // Build customer queue for the day
@@ -33,28 +34,41 @@ export class KitchenScene extends Phaser.Scene {
       day: this.state.day, rng,
       customersData, recipesData, economy: economyData,
     });
-    this.activeCustomers = []; // on-screen
-    this.pizzasInProgress = []; // on counter
-    this.ovens = Array.from({ length: ovenCount(this.state) }, () => null); // each slot: pizza or null
-    this.counterPizza = null; // the pizza currently being built
+    this.activeCustomers = [];
+    this.ovens = Array.from({ length: ovenCount(this.state) }, () => null);
+    this.counterPizzas = [];      // up to COUNTER_CAPACITY pizzas on counter
+    this.selectedPizza = null;    // reference into counterPizzas
     this.coinsEarned = 0;
     this.starsEarned = 0;
     this.pizzasServed = 0;
     this.dayLen = economyData.dayLengthSeconds;
     this.elapsed = 0;
-    this.stockLabels = {}; // populated by layoutIngredientTrays
+    this.stockLabels = {};
 
     this.layoutStations(width, height);
     this.layoutIngredientTrays(width, height);
     this.layoutUI(width, height);
 
+    // Selection ring (hidden until a pizza is selected)
+    this.selRing = this.add.graphics();
+    this.selRing.lineStyle(5, 0xffd54a, 1);
+    this.selRing.strokeCircle(0, 0, 60);
+    this.selRing.setVisible(false);
+
+    // Pull state updates on wake (e.g. after mid-day fridge trip from Morning)
+    this.events.on('wake', (sys, data) => {
+      if (data && data.state) {
+        this.state = data.state;
+        this.updateHud();
+      }
+    });
+
     this.time.addEvent({ delay: 100, loop: true, callback: () => this.tick(0.1) });
   }
 
   layoutUI(width, height) {
-    // Top bar
     this.add.rectangle(0, 0, width, 60, 0x2a1a0e).setOrigin(0, 0);
-    // Pause button (home icon) on the far left — freeze day and go back to Title
+    // Pause button — go to Morning (fridge) with timer frozen
     const pauseBtn = this.add.rectangle(42, 30, 60, 44, 0xffb347).setStrokeStyle(3, 0xffe28a).setInteractive({ useHandCursor: true });
     this.add.text(42, 30, '🏠', { fontSize: '24px' }).setOrigin(0.5);
     pauseBtn.on('pointerdown', () => this.pauseToShop());
@@ -63,49 +77,45 @@ export class KitchenScene extends Phaser.Scene {
     this.updateHud();
   }
 
-  // Called by the pause button. Freezes the Kitchen scene (timer stops) and shows Title
-  // with a "Resume day" option. Title wakes us when the player comes back.
   pauseToShop() {
     sfx.tap();
-    // Launch Title overlaid; mark ourselves asleep so the timer tick halts.
-    this.scene.launch('Title', { state: this.state, resumeFromKitchen: true });
+    this.scene.launch('Morning', { state: this.state, resumeFromKitchen: true });
     this.scene.sleep();
   }
 
   layoutStations(width, height) {
-    // Counter position matches the wooden counter baked into the backdrop (~x=490, y=380).
     const counterX = 490, counterY = 380;
-    // Transparent interaction zone — no visible beige rect anymore
-    this.counterZone = this.add.rectangle(counterX, counterY, 240, 180, 0x000000, 0.0).setStrokeStyle(0);
     this.counterX = counterX; this.counterY = counterY;
-    // +dough and bin buttons flanking the counter
-    const newBtn = this.add.rectangle(counterX - 190, counterY + 10, 110, 80, 0xffb347, 0.95).setStrokeStyle(4, 0x2a1a0e).setInteractive({ useHandCursor: true });
-    this.add.text(counterX - 190, counterY + 10, '+ dough', { fontFamily: 'Georgia', fontSize: '20px', color: '#2a1a0e', fontStyle: 'bold' }).setOrigin(0.5);
-    newBtn.on('pointerdown', () => this.startPizza());
-    const bin = this.add.rectangle(counterX + 190, counterY + 10, 110, 80, 0x555, 0.95).setStrokeStyle(4, 0x2a1a0e).setInteractive({ useHandCursor: true });
-    this.add.text(counterX + 190, counterY + 10, '🗑 bin', { fontFamily: 'Georgia', fontSize: '20px', color: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
-    bin.on('pointerdown', () => this.binPizza());
+    // Two counter positions, left & right, so two pizzas fit side-by-side
+    this.counterSlots = [
+      { x: counterX - 70, y: counterY, occupied: null },
+      { x: counterX + 70, y: counterY, occupied: null },
+    ];
 
-    // Ovens: overlay invisible interaction slots on top of the baked-in oven in the backdrop.
-    // The backdrop art has one oven on the left (~x=200, y=200). Second-oven upgrade adds another.
+    const newBtn = this.add.rectangle(counterX - 220, counterY + 10, 110, 80, 0xffb347, 0.95).setStrokeStyle(4, 0x2a1a0e).setInteractive({ useHandCursor: true });
+    this.add.text(counterX - 220, counterY + 10, '+ dough', { fontFamily: 'Georgia', fontSize: '20px', color: '#2a1a0e', fontStyle: 'bold' }).setOrigin(0.5);
+    newBtn.on('pointerdown', () => this.startPizza());
+
+    const bin = this.add.rectangle(counterX + 220, counterY + 10, 110, 80, 0x555, 0.95).setStrokeStyle(4, 0x2a1a0e).setInteractive({ useHandCursor: true });
+    this.add.text(counterX + 220, counterY + 10, '🗑 bin', { fontFamily: 'Georgia', fontSize: '20px', color: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
+    bin.on('pointerdown', () => this.binSelected());
+
+    // Ovens: overlay invisible interaction zones on top of baked-in oven art
     const ovenPositions = [{ x: 240, y: 180 }, { x: 820, y: 180 }];
     this.ovenSlots = this.ovens.map((_, i) => {
       const pos = ovenPositions[i] || { x: 200 + i * 220, y: 200 };
-      // Only draw a visible oven sprite for extra ovens beyond what's in the backdrop
       if (i >= 1) { const o = this.add.image(pos.x, pos.y, 'oven'); o.setScale(200 / Math.max(o.width, o.height)); }
       const slot = { x: pos.x, y: pos.y, index: i, pizzaSprite: null, bakeTime: 0, bakeStage: 'raw' };
-      // Clickable zone over the oven mouth
       const zone = this.add.rectangle(pos.x, pos.y, 200, 150, 0x000, 0.01).setInteractive({ useHandCursor: true });
       zone.on('pointerdown', () => this.handleOven(i));
       return slot;
     });
 
-    // Customer waiting area (right side)
+    // Customer waiting area (right column)
     this.customerSlots = [0, 1, 2].map((i) => ({ x: 870, y: 220 + i * 170, occupied: null }));
   }
 
   layoutIngredientTrays(width, height) {
-    // Along the bottom. Dough is placed via +dough button; other toppings via tap-to-add-to-current-pizza.
     const items = [
       { id: 'sauce', art: 'topping-sauce' },
       { id: 'cheese', art: 'topping-cheese' },
@@ -132,62 +142,98 @@ export class KitchenScene extends Phaser.Scene {
 
   updateHud() {
     const remaining = Math.max(0, this.dayLen - Math.floor(this.elapsed));
-    this.timerText.setText(`⏱ ${Math.floor(remaining / 60)}:${(remaining % 60).toString().padStart(2, '0')}`);
-    this.moneyText.setText(`£${this.state.money + this.coinsEarned}  ·  ⭐${this.starsEarned}  ·  🍕${this.pizzasServed}`);
+    if (this.timerText) this.timerText.setText(`⏱ ${Math.floor(remaining / 60)}:${(remaining % 60).toString().padStart(2, '0')}`);
+    if (this.moneyText) this.moneyText.setText(`£${this.state.money + this.coinsEarned}  ·  ⭐${this.starsEarned}  ·  🍕${this.pizzasServed}`);
     for (const [id, label] of Object.entries(this.stockLabels)) {
       label.setText(`×${this.state.fridge[id] ?? 0}`);
     }
   }
 
+  // === Counter / pizza selection ===
+
+  selectPizza(p) {
+    this.selectedPizza = p;
+    if (p && this.selRing) {
+      this.selRing.setPosition(p.sprite.x, p.sprite.y).setVisible(true);
+    } else if (this.selRing) {
+      this.selRing.setVisible(false);
+    }
+  }
+
+  firstFreeCounterSlot() {
+    return this.counterSlots.find((s) => !s.occupied) || null;
+  }
+
   startPizza() {
-    if (this.counterPizza) { sfx.hmph(); return; }
-    if (!hasStock(this.state, 'dough', 1)) { sfx.hmph(); this.flash('out of dough!'); return; }
+    const slot = this.firstFreeCounterSlot();
+    if (!slot) { this.flash('Counter is full — bake or bin one first!'); sfx.hmph(); return; }
+    if (!hasStock(this.state, 'dough', 1)) { sfx.hmph(); this.flash('Out of dough! Tap 🏠 to buy more.'); return; }
+
     this.state = { ...this.state, fridge: { ...this.state.fridge, dough: this.state.fridge.dough - 1 } };
-    const sprite = this.add.image(this.counterX, this.counterY, 'pizza-base-raw'); sprite.setScale(170 / Math.max(sprite.width, sprite.height));
-    this.counterPizza = { sprite, toppings: [], toppingSprites: [], bakeStage: 'raw' };
+    const sprite = this.add.image(slot.x, slot.y, 'pizza-base-raw');
+    sprite.setScale(130 / Math.max(sprite.width, sprite.height));
+    sprite.setInteractive({ useHandCursor: true });
+
+    const p = { sprite, toppings: [], toppingSprites: [], bakeStage: 'raw', slot };
+    slot.occupied = p;
+    this.counterPizzas.push(p);
+    sprite.on('pointerdown', () => { sfx.tap(); this.selectPizza(p); });
+    this.selectPizza(p); // new pizza is auto-selected
     sfx.pop();
     this.updateHud();
   }
 
   addTopping(id) {
-    if (!this.counterPizza) { this.flash('tap +dough first'); sfx.hmph(); return; }
-    if (!hasStock(this.state, id, 1)) { sfx.hmph(); this.flash(`out of ${id}!`); return; }
+    // If nothing selected, auto-pick the newest counter pizza
+    if (!this.selectedPizza && this.counterPizzas.length > 0) {
+      this.selectPizza(this.counterPizzas[this.counterPizzas.length - 1]);
+    }
+    const p = this.selectedPizza;
+    if (!p) { this.flash('Tap + dough first!'); sfx.hmph(); return; }
+    if (!hasStock(this.state, id, 1)) { sfx.hmph(); this.flash(`Out of ${id}!`); return; }
     this.state = { ...this.state, fridge: { ...this.state.fridge, [id]: this.state.fridge[id] - 1 } };
-    this.counterPizza.toppings.push(id);
-    // Scatter the topping on the pizza
+    p.toppings.push(id);
     const angle = Math.random() * Math.PI * 2;
-    const r = Math.random() * 50;
-    const tx = this.counterX + Math.cos(angle) * r;
-    const ty = this.counterY + Math.sin(angle) * r;
-    const s = this.add.image(tx, ty, `topping-${id}`).setDisplaySize(50, 50);
-    this.counterPizza.toppingSprites.push(s);
+    const r = Math.random() * 35;
+    const tx = p.sprite.x + Math.cos(angle) * r;
+    const ty = p.sprite.y + Math.sin(angle) * r;
+    const s = this.add.image(tx, ty, `topping-${id}`).setDisplaySize(40, 40);
+    p.toppingSprites.push(s);
     sfx.tap();
     this.updateHud();
   }
 
+  // === Ovens ===
+
   handleOven(idx) {
     const slot = this.ovenSlots[idx];
     if (slot.pizzaSprite) {
-      // Take out of oven: move to counter area and offer to serve
       this.takeFromOven(idx);
-    } else if (this.counterPizza) {
-      // Put the counter pizza in
-      this.putInOven(idx);
+    } else if (this.selectedPizza || this.counterPizzas.length > 0) {
+      // Use selected, else newest
+      const p = this.selectedPizza || this.counterPizzas[this.counterPizzas.length - 1];
+      this.putInOven(idx, p);
+    } else {
+      sfx.hmph();
     }
   }
 
-  putInOven(idx) {
+  putInOven(idx, p) {
     const slot = this.ovenSlots[idx];
-    const p = this.counterPizza;
     this.tweens.add({ targets: p.sprite, x: slot.x, y: slot.y, duration: 300 });
+    const px = p.sprite.x, py = p.sprite.y;
     for (const t of p.toppingSprites) {
-      this.tweens.add({ targets: t, x: slot.x + (t.x - p.sprite.x), y: slot.y + (t.y - p.sprite.y), duration: 300 });
+      const dx = t.x - px, dy = t.y - py;
+      this.tweens.add({ targets: t, x: slot.x + dx, y: slot.y + dy, duration: 300 });
     }
     slot.pizzaSprite = p.sprite;
     slot.pizzaData = p;
     slot.bakeTime = 0;
     slot.bakeStage = 'raw';
-    this.counterPizza = null;
+    // Free the counter slot
+    if (p.slot) { p.slot.occupied = null; p.slot = null; }
+    this.counterPizzas = this.counterPizzas.filter((x) => x !== p);
+    if (this.selectedPizza === p) this.selectPizza(null);
     sfx.sizzle();
   }
 
@@ -195,29 +241,43 @@ export class KitchenScene extends Phaser.Scene {
     const slot = this.ovenSlots[idx];
     const p = slot.pizzaData;
     p.bakeStage = slot.bakeStage;
-    // Move back to counter
-    this.tweens.add({ targets: p.sprite, x: this.counterX, y: this.counterY, duration: 300 });
-    for (const t of p.toppingSprites) {
-      const dx = t.x - slot.x; const dy = t.y - slot.y;
-      this.tweens.add({ targets: t, x: this.counterX + dx, y: this.counterY + dy, duration: 300 });
+    // Find a free counter slot; if none, pizza is served directly to the first waiting customer
+    const freeSlot = this.firstFreeCounterSlot();
+    if (!freeSlot) {
+      // Hand straight to oldest customer if any; otherwise refuse (keep in oven)
+      if (this.activeCustomers.length > 0) {
+        slot.pizzaSprite = null; slot.pizzaData = null; slot.bakeTime = 0; slot.bakeStage = 'raw';
+        this.servePizza(this.activeCustomers[0], p);
+        return;
+      }
+      sfx.hmph();
+      this.flash('Counter full — serve a pizza first!');
+      return;
     }
-    this.counterPizza = p;
+    this.tweens.add({ targets: p.sprite, x: freeSlot.x, y: freeSlot.y, duration: 300 });
+    const px = p.sprite.x, py = p.sprite.y;
+    for (const t of p.toppingSprites) {
+      const dx = t.x - px, dy = t.y - py;
+      this.tweens.add({ targets: t, x: freeSlot.x + dx, y: freeSlot.y + dy, duration: 300 });
+    }
+    freeSlot.occupied = p; p.slot = freeSlot;
+    this.counterPizzas.push(p);
     slot.pizzaSprite = null; slot.pizzaData = null; slot.bakeTime = 0; slot.bakeStage = 'raw';
     sfx.pop();
-    // Try to auto-serve: find a customer whose order best matches
-    this.time.delayedCall(350, () => this.offerServe());
+    this.selectPizza(p);
+    // Auto-serve the baked pizza to the oldest waiting customer after the tween
+    this.time.delayedCall(350, () => {
+      if (this.counterPizzas.includes(p) && this.activeCustomers.length > 0) {
+        this.servePizza(this.activeCustomers[0], p);
+      }
+    });
   }
 
-  offerServe() {
-    if (!this.counterPizza || this.activeCustomers.length === 0) return;
-    // Serve the oldest waiting customer (first in line)
-    const customer = this.activeCustomers[0];
-    this.servePizza(customer);
-  }
+  // === Serving / bin ===
 
-  servePizza(customer) {
-    if (!this.counterPizza) return;
-    const p = this.counterPizza;
+  servePizza(customer, pizzaArg) {
+    const p = pizzaArg || this.selectedPizza || this.counterPizzas[0];
+    if (!p) return;
     const bakeMap = { raw: BAKE.RAW, slightlyUnder: BAKE.SLIGHTLY, golden: BAKE.GOLDEN, slightlyOver: BAKE.SLIGHTLY, burnt: BAKE.BURNT };
     const waitState = customer.waitState;
     const { stars } = scorePizza({
@@ -233,39 +293,42 @@ export class KitchenScene extends Phaser.Scene {
     sfx.coin();
     if (stars === 3) sfx.star();
     else if (stars === 1) sfx.hmph();
-    // Pop stars above customer
     this.showServedFeedback(customer, stars, paid);
-    // Remove pizza + customer
-    p.sprite.destroy();
-    for (const t of p.toppingSprites) t.destroy();
-    this.counterPizza = null;
+    this.destroyPizza(p);
     this.removeCustomer(customer, true);
     this.updateHud();
   }
 
-  binPizza() {
-    if (!this.counterPizza) return;
-    this.counterPizza.sprite.destroy();
-    for (const t of this.counterPizza.toppingSprites) t.destroy();
-    this.counterPizza = null;
+  binSelected() {
+    const p = this.selectedPizza || this.counterPizzas[this.counterPizzas.length - 1];
+    if (!p) return;
+    this.destroyPizza(p);
     sfx.hmph();
   }
 
+  destroyPizza(p) {
+    p.sprite.destroy();
+    for (const t of p.toppingSprites) t.destroy();
+    if (p.slot) { p.slot.occupied = null; p.slot = null; }
+    this.counterPizzas = this.counterPizzas.filter((x) => x !== p);
+    if (this.selectedPizza === p) this.selectPizza(null);
+  }
+
   showServedFeedback(customer, stars, paid) {
-    const t = this.add.text(customer.x, customer.y - 100, `${'⭐'.repeat(stars)}  £${paid}`, { fontFamily: 'Georgia', fontSize: '36px', color: '#1a1a1a', fontStyle: 'bold' }).setOrigin(0.5);
+    const t = this.add.text(customer.x, customer.y - 100, `${'⭐'.repeat(stars)}  £${paid}`, { fontFamily: 'Georgia', fontSize: '36px', color: '#1a1a1a', fontStyle: 'bold', stroke: '#fff', strokeThickness: 4 }).setOrigin(0.5);
     this.tweens.add({ targets: t, y: t.y - 60, alpha: 0, duration: 1500, onComplete: () => t.destroy() });
   }
 
-  // Main tick (10 fps). dt in seconds.
   tick(dt) {
     this.elapsed += dt;
-    // (fit helper is inlined where needed)
-    // Spawn customers whose arrivalAt <= elapsed
+    // Keep selection ring glued to selected pizza
+    if (this.selectedPizza && this.selRing && this.selRing.visible) {
+      this.selRing.setPosition(this.selectedPizza.sprite.x, this.selectedPizza.sprite.y);
+    }
     while (this.queue.length > 0 && this.queue[0].arrivalAt <= this.elapsed) {
       const next = this.queue.shift();
       this.spawnCustomer(next);
     }
-    // Age customers
     const toLeave = [];
     for (const c of this.activeCustomers) {
       c.waited += dt;
@@ -274,10 +337,9 @@ export class KitchenScene extends Phaser.Scene {
       else if (frac < 1.0) c.waitState = WAIT.NEUTRAL;
       else c.waitState = WAIT.GRUMPY;
       c.faceSprite.setTexture(`face-${c.waitState}`);
-      if (frac >= 1.3) toLeave.push(c); // leave in a huff
+      if (frac >= 1.3) toLeave.push(c);
     }
     for (const c of toLeave) { sfx.hmph(); this.removeCustomer(c, false); }
-    // Bake pizzas
     for (const slot of this.ovenSlots) {
       if (slot.pizzaSprite) {
         slot.bakeTime += dt;
@@ -296,23 +358,19 @@ export class KitchenScene extends Phaser.Scene {
       }
     }
     this.updateHud();
-    // End of day?
     if (this.elapsed >= this.dayLen && this.activeCustomers.length === 0 && this.queue.length === 0) {
       this.endService();
     } else if (this.elapsed >= this.dayLen + 30) {
-      // Hard end
       this.endService();
     }
   }
 
   spawnCustomer(order) {
-    // Find a slot
     const slot = this.customerSlots.find((s) => !s.occupied);
     if (!slot) { this.queue.unshift({ ...order, arrivalAt: this.elapsed + 2 }); return; }
     slot.occupied = true;
     const sprite = this.add.image(slot.x, slot.y, `customer-${order.customerId}`); sprite.setScale(190 / Math.max(sprite.width, sprite.height));
     const face = this.add.image(slot.x + 60, slot.y - 80, 'face-happy').setDisplaySize(44, 44);
-    // Order bubble: dough + toppings icons
     const bubble = this.add.container(slot.x - 130, slot.y - 50);
     const bg = this.add.rectangle(0, 0, 140, 100, 0xffffff).setStrokeStyle(3, 0x1a1a1a);
     bubble.add(bg);
@@ -330,7 +388,6 @@ export class KitchenScene extends Phaser.Scene {
     };
     this.activeCustomers.push(customer);
     sfx.ding();
-    // Tap on customer serves current pizza
     sprite.setInteractive({ useHandCursor: true });
     sprite.on('pointerdown', () => this.servePizza(customer));
   }
@@ -342,8 +399,8 @@ export class KitchenScene extends Phaser.Scene {
   }
 
   flash(msg) {
-    const t = this.add.text(this.counterX, this.counterY - 150, msg, { fontFamily: 'Georgia', fontSize: '28px', color: '#d94a3f', fontStyle: 'bold', backgroundColor: '#fff', padding: { x: 10, y: 6 } }).setOrigin(0.5);
-    this.tweens.add({ targets: t, alpha: 0, duration: 1200, onComplete: () => t.destroy() });
+    const t = this.add.text(this.counterX, this.counterY - 170, msg, { fontFamily: 'Georgia', fontSize: '24px', color: '#d94a3f', fontStyle: 'bold', backgroundColor: '#fff', padding: { x: 10, y: 6 } }).setOrigin(0.5);
+    this.tweens.add({ targets: t, alpha: 0, duration: 1600, onComplete: () => t.destroy() });
   }
 
   endService() {

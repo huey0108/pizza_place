@@ -21,6 +21,7 @@ async function boot() {
     for (const key of ART_KEYS) this.load.image(key, artUrls[key]);
     this.load.image('bg-title',   `${base}assets/bg/title.png`);
     this.load.image('bg-kitchen', `${base}assets/bg/kitchen.png`);
+    this.load.image('bg-morning', `${base}assets/bg/morning.png`);
   }
     create() {
       const state = loadGame();

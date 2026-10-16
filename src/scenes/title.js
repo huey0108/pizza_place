@@ -6,7 +6,6 @@ export class TitleScene extends Phaser.Scene {
   constructor() { super('Title'); }
   init(data) {
     this.state = data.state;
-    this.resumeFromKitchen = !!data.resumeFromKitchen;
   }
 
   create() {
@@ -32,27 +31,9 @@ export class TitleScene extends Phaser.Scene {
       stroke: '#2a1a0e', strokeThickness: 5,
     }).setOrigin(0.5);
 
-    const btnLabel = this.resumeFromKitchen ? '▶ Back to the kitchen!' : 'Open the shop!';
-    const btn = this.add.rectangle(width / 2, 540, 440, 96, 0x4caf50).setStrokeStyle(6, 0x2a1a0e).setInteractive({ useHandCursor: true });
-    this.add.text(width / 2, 540, btnLabel, { fontFamily: 'Georgia, serif', fontSize: '38px', color: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
-    btn.on('pointerdown', () => {
-      sfx.tap();
-      if (this.resumeFromKitchen) {
-        // Wake the paused Kitchen scene and stop ourselves (we were launched, not started)
-        this.scene.wake('Kitchen');
-        this.scene.stop();
-      } else {
-        this.scene.start('Morning', { state: this.state });
-      }
-    });
-
-    // When paused mid-day, hint that time is frozen and show a tiny "end day now" escape hatch
-    if (this.resumeFromKitchen) {
-      this.add.text(width / 2, 620, '⏸ The clock is paused — take your time!', {
-        fontFamily: 'Georgia', fontSize: '22px', color: '#fff6e0',
-        stroke: '#2a1a0e', strokeThickness: 4,
-      }).setOrigin(0.5);
-    }
+    const btn = this.add.rectangle(width / 2, 540, 360, 96, 0x4caf50).setStrokeStyle(6, 0x2a1a0e).setInteractive({ useHandCursor: true });
+    this.add.text(width / 2, 540, 'Open the shop!', { fontFamily: 'Georgia, serif', fontSize: '42px', color: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
+    btn.on('pointerdown', () => { sfx.tap(); this.scene.start('Morning', { state: this.state }); });
 
     // Reset button bottom-right (tiny)
     const reset = this.add.text(width - 24, height - 24, 'start over', { fontFamily: 'system-ui', fontSize: '18px', color: '#2a1a0e' }).setOrigin(1, 1).setInteractive({ useHandCursor: true });
