@@ -54,9 +54,22 @@ export class KitchenScene extends Phaser.Scene {
   layoutUI(width, height) {
     // Top bar
     this.add.rectangle(0, 0, width, 60, 0x2a1a0e).setOrigin(0, 0);
-    this.timerText = this.add.text(20, 30, '', { fontFamily: 'Georgia', fontSize: '28px', color: '#fff' }).setOrigin(0, 0.5);
+    // Pause button (home icon) on the far left — freeze day and go back to Title
+    const pauseBtn = this.add.rectangle(42, 30, 60, 44, 0xffb347).setStrokeStyle(3, 0xffe28a).setInteractive({ useHandCursor: true });
+    this.add.text(42, 30, '🏠', { fontSize: '24px' }).setOrigin(0.5);
+    pauseBtn.on('pointerdown', () => this.pauseToShop());
+    this.timerText = this.add.text(90, 30, '', { fontFamily: 'Georgia', fontSize: '28px', color: '#fff' }).setOrigin(0, 0.5);
     this.moneyText = this.add.text(width - 20, 30, '', { fontFamily: 'Georgia', fontSize: '28px', color: '#ffd700' }).setOrigin(1, 0.5);
     this.updateHud();
+  }
+
+  // Called by the pause button. Freezes the Kitchen scene (timer stops) and shows Title
+  // with a "Resume day" option. Title wakes us when the player comes back.
+  pauseToShop() {
+    sfx.tap();
+    // Launch Title overlaid; mark ourselves asleep so the timer tick halts.
+    this.scene.launch('Title', { state: this.state, resumeFromKitchen: true });
+    this.scene.sleep();
   }
 
   layoutStations(width, height) {
