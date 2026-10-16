@@ -16,10 +16,12 @@ async function boot() {
   const artUrls = await loadArtAsBlobUrls(`${base}assets/art/`);
 
   class BootScene extends Phaser.Scene {
-    constructor() { super('Boot'); }
-    preload() {
-      for (const key of ART_KEYS) this.load.image(key, artUrls[key]);
-    }
+  constructor() { super('Boot'); }
+  preload() {
+    for (const key of ART_KEYS) this.load.image(key, artUrls[key]);
+    this.load.image('bg-title',   `${base}assets/bg/title.png`);
+    this.load.image('bg-kitchen', `${base}assets/bg/kitchen.png`);
+  }
     create() {
       const state = loadGame();
       this.scene.start('Title', { state });

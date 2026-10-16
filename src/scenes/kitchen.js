@@ -18,7 +18,14 @@ export class KitchenScene extends Phaser.Scene {
 
   create() {
     const { width, height } = this.scale;
-    this.cameras.main.setBackgroundColor('#f0e4d2');
+    this.cameras.main.setBackgroundColor('#1a0f08');
+
+    // Full-bleed concept-art backdrop (kitchen interior)
+    const bg = this.add.image(width / 2, height / 2, 'bg-kitchen');
+    const sx = width / bg.width, sy = height / bg.height;
+    bg.setScale(Math.max(sx, sy));
+    // Light overlay so UI elements pop
+    this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.18);
 
     // Build customer queue for the day
     const rng = createRng(this.state.seed + this.state.day * 977);
@@ -65,16 +72,16 @@ export class KitchenScene extends Phaser.Scene {
     this.add.text(width / 2 + 170, 440, '🗑 bin', { fontFamily: 'Georgia', fontSize: '22px', color: '#fff' }).setOrigin(0.5);
     bin.on('pointerdown', () => this.binPizza());
 
-    // Ovens (top area)
-    const ovenY = 180;
-    const ovenGap = 220;
-    const ovenStartX = width / 2 - ((this.ovens.length - 1) * ovenGap) / 2;
+    // Ovens: overlay invisible interaction slots on top of the baked-in oven in the backdrop.
+    // The backdrop art has one oven on the left (~x=200, y=200). Second-oven upgrade adds another.
+    const ovenPositions = [{ x: 200, y: 200 }, { x: 820, y: 200 }];
     this.ovenSlots = this.ovens.map((_, i) => {
-      const x = ovenStartX + i * ovenGap;
-      this.add.image(x, ovenY, 'oven').setDisplaySize(200, 150);
-      const slot = { x, y: ovenY, index: i, pizzaSprite: null, bakeTime: 0, bakeStage: 'raw' };
-      // Clickable zone to interact (put/take pizza)
-      const zone = this.add.rectangle(x, ovenY, 200, 150, 0x000, 0.01).setInteractive({ useHandCursor: true });
+      const pos = ovenPositions[i] || { x: 200 + i * 220, y: 200 };
+      // Only draw a visible oven sprite for extra ovens beyond what's in the backdrop
+      if (i >= 1) this.add.image(pos.x, pos.y, 'oven').setDisplaySize(200, 150);
+      const slot = { x: pos.x, y: pos.y, index: i, pizzaSprite: null, bakeTime: 0, bakeStage: 'raw' };
+      // Clickable zone over the oven mouth
+      const zone = this.add.rectangle(pos.x, pos.y, 200, 150, 0x000, 0.01).setInteractive({ useHandCursor: true });
       zone.on('pointerdown', () => this.handleOven(i));
       return slot;
     });

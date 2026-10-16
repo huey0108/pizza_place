@@ -8,24 +8,25 @@ export class TitleScene extends Phaser.Scene {
 
   create() {
     const { width, height } = this.scale;
-    // Warm background
-    this.cameras.main.setBackgroundColor('#ffb347');
-    // Decorative pizza slices
-    for (let i = 0; i < 8; i++) {
-      const x = Phaser.Math.Between(0, width);
-      const y = Phaser.Math.Between(0, height);
-      const img = this.add.image(x, y, 'logo').setScale(0.3).setAlpha(0.15);
-      img.setAngle(Phaser.Math.Between(0, 360));
-    }
+    this.cameras.main.setBackgroundColor('#2a1a0e');
 
-    this.add.image(width / 2, 180, 'logo').setScale(1.0);
-    this.add.text(width / 2, 320, "Zofia's Pizzeria", {
-      fontFamily: 'Georgia, serif', fontSize: '72px', color: '#2a1a0e',
-      fontStyle: 'bold', stroke: '#fff', strokeThickness: 6,
+    // Full-bleed concept-art backdrop (shop exterior)
+    const bg = this.add.image(width / 2, height / 2, 'bg-title');
+    const sx = width / bg.width, sy = height / bg.height;
+    bg.setScale(Math.max(sx, sy)); // cover
+
+    // Soft readability overlay at top for title text
+    this.add.rectangle(width / 2, 240, width, 320, 0x000000, 0.35);
+
+    this.add.image(width / 2, 110, 'logo').setScale(0.75);
+    this.add.text(width / 2, 240, "Zofia's Pizzeria", {
+      fontFamily: 'Georgia, serif', fontSize: '72px', color: '#fff6e0',
+      fontStyle: 'bold', stroke: '#2a1a0e', strokeThickness: 8,
     }).setOrigin(0.5);
 
-    this.add.text(width / 2, 400, `Day ${this.state.day}  ·  £${this.state.money}  ·  ⭐ ${this.state.reputation}`, {
-      fontFamily: 'Georgia, serif', fontSize: '36px', color: '#2a1a0e',
+    this.add.text(width / 2, 320, `Day ${this.state.day}  ·  £${this.state.money}  ·  ⭐ ${this.state.reputation}`, {
+      fontFamily: 'Georgia, serif', fontSize: '34px', color: '#fff6e0',
+      stroke: '#2a1a0e', strokeThickness: 5,
     }).setOrigin(0.5);
 
     const btn = this.add.rectangle(width / 2, 540, 360, 96, 0x4caf50).setStrokeStyle(6, 0x2a1a0e).setInteractive({ useHandCursor: true });
