@@ -207,15 +207,55 @@ export class KitchenScene extends Phaser.Scene {
 
   handleOven(idx) {
     const slot = this.ovenSlots[idx];
-    if (slot.pizzaSprite) {
+    const counterPizza = this.selectedPizza || this.counterPizzas[this.counterPizzas.length - 1];
+    if (slot.pizzaSprite && counterPizza) {
+      // SWAP: oven pizza comes out to counter, counter pizza goes in
+      this.swapOven(idx, counterPizza);
+    } else if (slot.pizzaSprite) {
+      // Just take out (no auto-serve)
       this.takeFromOven(idx);
-    } else if (this.selectedPizza || this.counterPizzas.length > 0) {
-      // Use selected, else newest
-      const p = this.selectedPizza || this.counterPizzas[this.counterPizzas.length - 1];
-      this.putInOven(idx, p);
+    } else if (counterPizza) {
+      this.putInOven(idx, counterPizza);
     } else {
       sfx.hmph();
+      this.flash('Nothing to put in — tap + dough first!');
     }
+  }
+
+  swapOven(idx, counterPizza) {
+    const slot = this.ovenSlots[idx];
+    const bakedPizza = slot.pizzaData;
+    bakedPizza.bakeStage = slot.bakeStage;
+    const counterSlot = counterPizza.slot;
+    if (!counterSlot) { sfx.hmph(); return; }
+    // Tween baked pizza → counter slot
+    const bakedTarget = { x: counterSlot.x, y: counterSlot.y };
+    this.tweens.add({ targets: bakedPizza.sprite, x: bakedTarget.x, y: bakedTarget.y, duration: 300 });
+    const bpx = bakedPizza.sprite.x, bpy = bakedPizza.sprite.y;
+    for (const t of bakedPizza.toppingSprites) {
+      const dx = t.x - bpx, dy = t.y - bpy;
+      this.tweens.add({ targets: t, x: bakedTarget.x + dx, y: bakedTarget.y + dy, duration: 300 });
+    }
+    // Tween counter pizza → oven
+    this.tweens.add({ targets: counterPizza.sprite, x: slot.x, y: slot.y, duration: 300 });
+    const cpx = counterPizza.sprite.x, cpy = counterPizza.sprite.y;
+    for (const t of counterPizza.toppingSprites) {
+      const dx = t.x - cpx, dy = t.y - cpy;
+      this.tweens.add({ targets: t, x: slot.x + dx, y: slot.y + dy, duration: 300 });
+    }
+    // Rewire slot ownership
+    counterSlot.occupied = bakedPizza;
+    bakedPizza.slot = counterSlot;
+    this.counterPizzas = this.counterPizzas.filter((x) => x !== counterPizza);
+    this.counterPizzas.push(bakedPizza);
+    counterPizza.slot = null;
+    slot.pizzaSprite = counterPizza.sprite;
+    slot.pizzaData = counterPizza;
+    slot.bakeTime = 0;
+    slot.bakeStage = 'raw';
+    this.selectPizza(bakedPizza); // select the now-on-counter baked pizza
+    sfx.sizzle();
+    this.flash('🔄 Swapped! Tap a customer to serve.');
   }
 
   putInOven(idx, p) {
@@ -245,13 +285,8 @@ export class KitchenScene extends Phaser.Scene {
     const freeSlot = this.firstFreeCounterSlot();
     if (!freeSlot) {
       // Hand straight to oldest customer if any; otherwise refuse (keep in oven)
-      if (this.activeCustomers.length > 0) {
-        slot.pizzaSprite = null; slot.pizzaData = null; slot.bakeTime = 0; slot.bakeStage = 'raw';
-        this.servePizza(this.activeCustomers[0], p);
-        return;
-      }
       sfx.hmph();
-      this.flash('Counter full — serve a pizza first!');
+      this.flash('Counter full — bin or serve one first!');
       return;
     }
     this.tweens.add({ targets: p.sprite, x: freeSlot.x, y: freeSlot.y, duration: 300 });
@@ -265,12 +300,7 @@ export class KitchenScene extends Phaser.Scene {
     slot.pizzaSprite = null; slot.pizzaData = null; slot.bakeTime = 0; slot.bakeStage = 'raw';
     sfx.pop();
     this.selectPizza(p);
-    // Auto-serve the baked pizza to the oldest waiting customer after the tween
-    this.time.delayedCall(350, () => {
-      if (this.counterPizzas.includes(p) && this.activeCustomers.length > 0) {
-        this.servePizza(this.activeCustomers[0], p);
-      }
-    });
+    this.flash('Baked! Tap the right customer to serve.');
   }
 
   // === Serving / bin ===
